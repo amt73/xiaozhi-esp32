@@ -449,6 +449,19 @@ void WifiConfigurationAp::StartWebServer()
             httpd_resp_set_type(req, "application/json");
             httpd_resp_set_hdr(req, "Connection", "close");
             httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+
+            // Do not rely on the browser loading done.html and POSTing /exit.
+            // Phones often leave the device AP immediately after credentials are accepted,
+            // which would otherwise leave the device stuck in config AP mode.
+            ESP_LOGI(TAG, "WiFi credentials accepted, exiting config mode...");
+            xTaskCreate([](void *ctx) {
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                auto* self = static_cast<WifiConfigurationAp*>(ctx);
+                if (self->on_exit_requested_) {
+                    self->on_exit_requested_();
+                }
+                vTaskDelete(NULL);
+            }, "exit_config_task", 4096, this_, 5, NULL);
             return ESP_OK;
         },
         .user_ctx = this
