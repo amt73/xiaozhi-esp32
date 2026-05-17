@@ -28,6 +28,34 @@
 extern const char index_html_start[] asm("_binary_wifi_configuration_html_start");
 extern const char done_html_start[] asm("_binary_wifi_configuration_done_html_start");
 
+static std::string JsonEscape(const char* value) {
+    std::string out;
+    if (value == nullptr) {
+        return out;
+    }
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(value); *p != '\0'; ++p) {
+        switch (*p) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (*p < 0x20) {
+                    char buf[7];
+                    snprintf(buf, sizeof(buf), "\\u%04x", *p);
+                    out += buf;
+                } else {
+                    out += static_cast<char>(*p);
+                }
+                break;
+        }
+    }
+    return out;
+}
+
 WifiConfigurationAp::WifiConfigurationAp()
 {
     event_group_ = xEventGroupCreate();
@@ -337,10 +365,11 @@ void WifiConfigurationAp::StartWebServer()
             for (int i = 0; i < this_->ap_records_.size(); i++) {
                 ESP_LOGI(TAG, "SSID: %s, RSSI: %d, Authmode: %d",
                     (char *)this_->ap_records_[i].ssid, this_->ap_records_[i].rssi, this_->ap_records_[i].authmode);
-                char buf[128];
-                snprintf(buf, sizeof(buf), "{\"ssid\":\"%s\",\"rssi\":%d,\"authmode\":%d}",
-                    (char *)this_->ap_records_[i].ssid, this_->ap_records_[i].rssi, this_->ap_records_[i].authmode);
-                httpd_resp_sendstr_chunk(req, buf);
+                auto escaped_ssid = JsonEscape(reinterpret_cast<const char*>(this_->ap_records_[i].ssid));
+                std::string item = "{\"ssid\":\"" + escaped_ssid + "\",\"rssi\":" +
+                    std::to_string(this_->ap_records_[i].rssi) + ",\"authmode\":" +
+                    std::to_string(this_->ap_records_[i].authmode) + "}";
+                httpd_resp_sendstr_chunk(req, item.c_str());
                 if (i < this_->ap_records_.size() - 1) {
                     httpd_resp_sendstr_chunk(req, ",");
                 }
@@ -786,8 +815,9 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
 
     wifi_config_t wifi_config;
     bzero(&wifi_config, sizeof(wifi_config));
-    strlcpy((char *)wifi_config.sta.ssid, ssid.c_str(), 32);
-    strlcpy((char *)wifi_config.sta.password, password.c_str(), 64);
+    memcpy(wifi_config.sta.ssid, ssid.data(), ssid.size());
+    memcpy(wifi_config.sta.password, password.data(), password.size());
+    ESP_LOGI(TAG, "Connecting to submitted SSID [%s], length=%u", ssid.c_str(), static_cast<unsigned>(ssid.size()));
     wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     wifi_config.sta.failure_retry_cnt = 1;
 

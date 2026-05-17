@@ -223,8 +223,18 @@ void WifiStation::StartConnect() {
 
     wifi_config_t wifi_config;
     bzero(&wifi_config, sizeof(wifi_config));
-    strcpy((char *)wifi_config.sta.ssid, ap_record.ssid.c_str());
-    strcpy((char *)wifi_config.sta.password, ap_record.password.c_str());
+
+    size_t ssid_len = ap_record.ssid.size();
+    size_t password_len = ap_record.password.size();
+    if (ssid_len > sizeof(wifi_config.sta.ssid) || password_len > sizeof(wifi_config.sta.password)) {
+        ESP_LOGE(TAG, "Invalid WiFi credential length, ssid_len=%u password_len=%u",
+                 static_cast<unsigned>(ssid_len), static_cast<unsigned>(password_len));
+        return;
+    }
+    memcpy(wifi_config.sta.ssid, ap_record.ssid.data(), ssid_len);
+    memcpy(wifi_config.sta.password, ap_record.password.data(), password_len);
+    ESP_LOGI(TAG, "Connecting to saved SSID [%s], length=%u, channel=%u, authmode=%d",
+             ap_record.ssid.c_str(), static_cast<unsigned>(ssid_len), ap_record.channel, ap_record.authmode);
     if (remember_bssid_) {
         wifi_config.sta.channel = ap_record.channel;
         memcpy(wifi_config.sta.bssid, ap_record.bssid, 6);
