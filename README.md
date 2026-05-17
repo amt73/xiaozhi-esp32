@@ -12,6 +12,143 @@ As a voice interaction entry, the XiaoZhi AI chatbot leverages the AI capabiliti
 
 <img src="docs/mcp-based-graph.jpg" alt="Control everything via MCP" width="320">
 
+
+## Amt ESP32-WROOM/WROVER Custom Build
+
+This fork contains the custom `bread-compact-esp32-amt-custom` build for a classic ESP32-WROOM/WROVER board with:
+
+- INMP441 I2S microphone
+- MAX98357A I2S amplifier/speaker
+- SSD1306 128x64 I2C OLED display
+- English AP/captive-portal Wi-Fi configuration page
+- A full-flash single-binary workflow for easy flashing at offset `0x0`
+
+### Wiring Diagram
+
+![Amt ESP32 custom wiring](docs/amt/amt_custom_wiring_corrected.png)
+
+### Current Pin Map
+
+The active pin map is defined in [`main/boards/bread-compact-esp32/config.h`](main/boards/bread-compact-esp32/config.h).
+
+| Function | Module pin | ESP32 GPIO | Notes |
+| --- | --- | --- | --- |
+| I2S BCLK | INMP441 SCK + MAX98357A BCLK | GPIO26 | Shared clock |
+| I2S LRCLK/WS | INMP441 WS + MAX98357A LRC | GPIO25 | Shared word select |
+| I2S microphone data | INMP441 SD | GPIO33 | ESP32 input (`AUDIO_I2S_GPIO_DIN`) |
+| I2S speaker data | MAX98357A DIN | GPIO32 | ESP32 output (`AUDIO_I2S_GPIO_DOUT`) |
+| OLED SDA | SSD1306 SDA | GPIO21 | I2C address `0x3C` |
+| OLED SCL | SSD1306 SCL | GPIO22 | I2C bus 0 |
+| Boot/config button | Button to GND | GPIO0 | Enters Wi-Fi config while starting |
+| Touch/PTT button | Button/touch input | GPIO5 | Press-to-talk input |
+| ASR/wake button | Button to GND | GPIO19 | Invokes wake word action |
+| Built-in LED | LED | GPIO2 | Status/output GPIO |
+| Lamp/MCP output | Lamp/relay input | GPIO18 | Demo MCP-controlled output |
+
+Power notes:
+
+- Use common GND for ESP32, INMP441, MAX98357A, OLED, and buttons.
+- INMP441 and SSD1306 are normally powered from `3V3`.
+- MAX98357A can usually be powered from `5V/VIN` or `3V3` depending on the module; follow the module label/spec.
+
+### Changing Pins
+
+If you change any connection in the wiring, update the matching `#define` in:
+
+```text
+main/boards/bread-compact-esp32/config.h
+```
+
+Common edits:
+
+```c
+#define AUDIO_I2S_GPIO_BCLK GPIO_NUM_26
+#define AUDIO_I2S_GPIO_WS   GPIO_NUM_25
+#define AUDIO_I2S_GPIO_DOUT GPIO_NUM_32
+#define AUDIO_I2S_GPIO_DIN  GPIO_NUM_33
+
+#define DISPLAY_SDA_PIN GPIO_NUM_21
+#define DISPLAY_SCL_PIN GPIO_NUM_22
+
+#define TOUCH_BUTTON_GPIO GPIO_NUM_5
+#define ASR_BUTTON_GPIO   GPIO_NUM_19
+#define LAMP_GPIO         GPIO_NUM_18
+```
+
+After changing pins, rebuild the firmware and flash the new binary. If you rename the board/build target, also update [`main/boards/bread-compact-esp32/config.json`](main/boards/bread-compact-esp32/config.json).
+
+### Build Requirements
+
+Install Espressif ESP-IDF and make sure the ESP-IDF environment is loaded before building.
+
+Required tools:
+
+- ESP-IDF `>= 5.5.2` (the current project manifest requires this)
+- Python from the ESP-IDF environment
+- CMake and Ninja from the ESP-IDF toolchain
+- `esptool` / `esptool.py`
+- USB serial driver for your ESP32 board, if needed by your OS
+
+Typical setup:
+
+```bash
+# Example only; use your actual ESP-IDF install path
+. ~/esp/esp-idf/export.sh
+
+idf.py set-target esp32
+idf.py build
+```
+
+If starting from a clean config, open menuconfig and select:
+
+```text
+Xiaozhi Assistant -> Board Type -> bread-compact-esp32-amt-custom
+```
+
+The relevant build config is:
+
+```text
+main/boards/bread-compact-esp32/config.json
+```
+
+### Build One Full-Flash Binary
+
+`build/xiaozhi.bin` is only the application image and belongs at offset `0x10000`. Do **not** flash it as a single `0x0` image.
+
+To create one full-flash binary that can be flashed at `0x0`, build first and then merge the bootloader, partition table, OTA data, app, and assets images:
+
+```bash
+idf.py build
+
+python -m esptool --chip esp32 merge-bin \
+  -o build/xiaozhi-esp32-full-flash-0x0.bin \
+  --flash-mode dio \
+  --flash-freq 40m \
+  --flash-size 4MB \
+  0x1000  build/bootloader/bootloader.bin \
+  0x8000  build/partition_table/partition-table.bin \
+  0xd000  build/ota_data_initial.bin \
+  0x10000 build/xiaozhi.bin \
+  0x300000 build/generated_assets.bin
+```
+
+Flash the merged single binary like this:
+
+```bash
+python -m esptool --chip esp32 --baud 460800 write-flash -z \
+  0x0 build/xiaozhi-esp32-full-flash-0x0.bin
+```
+
+For reference, the multi-file flash layout is:
+
+```text
+0x1000  build/bootloader/bootloader.bin
+0x8000  build/partition_table/partition-table.bin
+0xd000  build/ota_data_initial.bin
+0x10000 build/xiaozhi.bin
+0x300000 build/generated_assets.bin
+```
+
 ## Version Notes
 
 The current v2 version is incompatible with the v1 partition table, so it is not possible to upgrade from v1 to v2 via OTA. For partition table details, see [partitions/v2/README.md](partitions/v2/README.md).

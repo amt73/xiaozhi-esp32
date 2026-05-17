@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <chrono>
 #include <mutex>
+#include <atomic>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -119,6 +120,8 @@ public:
     bool IsWakeWordRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING; }
     bool IsAudioProcessorRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_PROCESSOR_RUNNING; }
     bool IsAfeWakeWord();
+    bool IsAudioTestingRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_TESTING_RUNNING; }
+    void GetAudioTestingMetrics(int& rms, int& peak, int& buffered_ms);
 
     void EnableWakeWordDetection(bool enable);
     void EnableVoiceProcessing(bool enable);
@@ -179,6 +182,8 @@ private:
     bool voice_detected_ = false;
     bool service_stopped_ = true;
     bool audio_input_need_warmup_ = false;
+    std::atomic<int> audio_testing_rms_{0};
+    std::atomic<int> audio_testing_peak_{0};
 
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;

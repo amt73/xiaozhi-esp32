@@ -55,8 +55,40 @@ void WifiBoard::StartNetwork() {
     // Initialize WiFi manager
     WifiManagerConfig config;
     config.ssid_prefix = "Xiaozhi";
-    config.language = Lang::CODE;
+    // Keep the captive portal / AP configuration page in English even when
+    // the firmware UI language resources are generated as zh-CN.
+    config.language = "en-US";
     wifi_manager.Initialize(config);
+
+    HardwareTestCallbacks hardware_test_callbacks;
+    hardware_test_callbacks.on_start = []() {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateWifiConfiguring) {
+            app.StartListening();
+        }
+    };
+    hardware_test_callbacks.on_stop = []() {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateAudioTesting) {
+            app.StopListening();
+        }
+    };
+    hardware_test_callbacks.get_status = []() {
+        auto& app = Application::GetInstance();
+        int rms = 0;
+        int peak = 0;
+        int buffered_ms = 0;
+        auto& audio = app.GetAudioService();
+        audio.GetAudioTestingMetrics(rms, peak, buffered_ms);
+        HardwareTestStatus status;
+        status.supported = true;
+        status.running = app.GetDeviceState() == kDeviceStateAudioTesting;
+        status.rms = rms;
+        status.peak = peak;
+        status.buffered_ms = buffered_ms;
+        return status;
+    };
+    wifi_manager.SetHardwareTestCallbacks(hardware_test_callbacks);
 
     // Set unified event callback - forward to NetworkEvent with SSID data
     wifi_manager.SetEventCallback([this](WifiEvent event, const std::string& data) {

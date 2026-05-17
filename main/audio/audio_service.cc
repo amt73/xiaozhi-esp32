@@ -1,5 +1,7 @@
 #include "audio_service.h"
 #include <esp_log.h>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)        \
@@ -260,6 +262,21 @@ void AudioService::AudioInputTask() {
                     }
                     data = std::move(mono_data);
                 }
+
+                int64_t sum_squares = 0;
+                int peak = 0;
+                for (auto sample : data) {
+                    int v = sample;
+                    int abs_v = std::abs(v);
+                    if (abs_v > peak) {
+                        peak = abs_v;
+                    }
+                    sum_squares += static_cast<int64_t>(v) * static_cast<int64_t>(v);
+                }
+                int rms = data.empty() ? 0 : static_cast<int>(std::sqrt(static_cast<double>(sum_squares) / data.size()));
+                audio_testing_rms_.store(rms, std::memory_order_relaxed);
+                audio_testing_peak_.store(peak, std::memory_order_relaxed);
+
                 PushTaskToEncodeQueue(kAudioTaskTypeEncodeToTestingQueue, std::move(data));
                 continue;
             }
@@ -603,9 +620,19 @@ void AudioService::EnableVoiceProcessing(bool enable) {
     }
 }
 
+
+void AudioService::GetAudioTestingMetrics(int& rms, int& peak, int& buffered_ms) {
+    rms = audio_testing_rms_.load(std::memory_order_relaxed);
+    peak = audio_testing_peak_.load(std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    buffered_ms = static_cast<int>(audio_testing_queue_.size() * OPUS_FRAME_DURATION_MS);
+}
+
 void AudioService::EnableAudioTesting(bool enable) {
     ESP_LOGI(TAG, "%s audio testing", enable ? "Enabling" : "Disabling");
     if (enable) {
+        audio_testing_rms_.store(0, std::memory_order_relaxed);
+        audio_testing_peak_.store(0, std::memory_order_relaxed);
         xEventGroupSetBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING);
     } else {
         xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING);
